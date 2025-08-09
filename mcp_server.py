@@ -7,4 +7,4 @@ def add_numbers(a: int, b: int) -> int:
     return a + b
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="stdio")
