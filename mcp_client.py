@@ -1,9 +1,8 @@
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
-
 from typing import Optional
+
 
 class MCPClient:
     def __init__(self):
@@ -11,7 +10,7 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
 
     async def connect_to_servers(self):
-        server_script_path = "./mcp_servers.py"
+        server_script_path = "./mcp_server.py"
 
         command = "python"
         server_params = StdioServerParameters(
@@ -31,3 +30,14 @@ class MCPClient:
         response = await self.session.list_tools()
         tools = response.tools
         print("Connected to server with tools: ", [tool.name for tool in tools])
+
+    async def cleanup(self):
+        """Clean up resources"""
+        if self.exit_stack:
+            await self.exit_stack.aclose()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.cleanup()

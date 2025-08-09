@@ -16,8 +16,10 @@ async def main():
     if not azure_endpoint:
         raise ValueError("AZURE_ENDPOINT environment variable is required")
 
-    mcp_client = MCPClient()
-    await mcp_client.connect_to_servers()
+    # We need to create mcp_client with this async context, i.e. the async context in which we run main function
+    # For that to happen, we have to implement __aenter__ and __aexit__ methods in MCPClient class
+    async with MCPClient() as mcp_client:
+        await mcp_client.connect_to_servers()
     # client = AzureOpenAI(
     #     api_version="2025-01-01-preview",
     #     azure_endpoint=azure_endpoint,
