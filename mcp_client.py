@@ -50,15 +50,7 @@ class MCPClient:
         tools = response.tools
         print("Connected to server with tools: ", [tool.name for tool in tools])
 
-    async def process_query(self, query: str):
-        conversations: list[ChatCompletionMessageParam] = [
-            { "role": "system", "content": "You are a helpful assistant" }
-        ]
-        conversations.append({
-            "role": "user",
-            "content": query
-        })
-
+    async def process_query(self, conversations: list[ChatCompletionMessageParam]):
         # do something
         response = await self.llm_client.chat.completions.create(
             messages=conversations,
@@ -72,9 +64,16 @@ class MCPClient:
         return response.choices[0]
 
     async def chat_loop(self):
+        conversations: list[ChatCompletionMessageParam] = [
+            { "role": "system", "content": "You are a helpful assistant" }
+        ]
         while True:
             user_input = input("User: ")
-            response = await self.process_query(user_input)
+            conversations.append({
+                "role": "user",
+                "content": user_input
+            })
+            response = await self.process_query(conversations)
             print("\n")
             pprint(response.message.content)
             print("\n")
