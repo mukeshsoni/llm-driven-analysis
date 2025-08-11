@@ -9,6 +9,7 @@
 - [X] Implement a simple MCP server and test with MCP inspector
 - [X] Implement a simple MCP client and test with our MCP server
 - [X] Integrate our chat loop with the MCP client so that the LLM can use our MCP server. The key is to have the chat loop as a method of MCP client. The MCP client takes care of both communicating with the LLM endpoint as well as making the tools calls to the appropriate MCP servers.
+- [X] Make the MCP client, MCP server and the openai endpoint work together. Update prompt so that the LLM calls our tool for some task. The tool description takes care of LLM calling a tool. We don't need to tell it again inside the prompt.
 - [ ] Use structured output with pydantic classes
 - [ ] Add an MCP server which runs SQL queries on some database. Will need to change the prompt too.
 - [ ] Expose the MCP client through an http api endpoint
