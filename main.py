@@ -1,3 +1,5 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -9,10 +11,10 @@ import json
 from openai import AsyncAzureOpenAI
 from typing import Optional
 from mcp_manager import MCPManager
+from contextlib import asynccontextmanager
 
 
 load_dotenv()
-
 system_prompt = """
 You are an AI assistant for a music store database called "Chikoon DB".
 You have access to a function called `run_query` that runs SQL queries against the SQLite database.
@@ -42,6 +44,17 @@ Tables:
 - InvoiceItem(InvoiceItemId, InvoiceId, TrackId, UnitPrice, Quantity)
 </schema>
 """
+
+# Request and Response models
+class LLMQueryRequest(BaseModel):
+    query: str
+
+class LLMQueryResponse(BaseModel):
+    response: str
+    error: Optional[str] = None
+
+
+
 class LLMQueryProcessor:
     """Processes LLM queries and orchestrates tool calls."""
 
@@ -192,9 +205,43 @@ class LLMQueryProcessor:
         """Async context manager exit."""
         await self.cleanup()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    app.state.llm_processor = LLMQueryProcessor()
+    await app.state.llm_processor.initialize()
+    yield
+    # Shutdown
+    await app.state.llm_processor.cleanup()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/chat", response_model=LLMQueryResponse)
+async def process_llm_query(request: LLMQueryRequest):
+    """Process a query using the LLM with MCP tools."""
+    if not hasattr(app.state, 'llm_processor') or not app.state.llm_processor:
+        raise HTTPException(status_code=500, detail="LLM processor not initialized")
+
+    try:
+        response = await app.state.llm_processor.process_query(request.query)
+        return LLMQueryResponse(response=response)
+    except Exception as e:
+        return LLMQueryResponse(
+            response="",
+            error=f"Error processing query: {str(e)}"
+        )
 async def main():
-    async with LLMQueryProcessor() as llm_processor:
-        await llm_processor.chat_loop()
+    """Run the FastAPI app with uvicorn."""
+    import uvicorn
+    await uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="0.0.0.0",
+            port=8003,
+            log_level="info"
+        )
+    ).serve()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

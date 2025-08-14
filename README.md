@@ -18,6 +18,7 @@
 - [ ] Moving MCP server configurations to a json file. Or should it simply be a python dict? Why complicate things.
 - [ ] Use MCP resources or tools to expose db and table schema from the sql execution MCP server. Instead of hard coding in the prompt. That should allow us to scale to any number of databases.
 - [ ] Web UI
+- [ ] Ability to render charts from the data in our database
 - [ ] Figure out how to handle concurrent sessions from multiple users
 - [ ] Add copilot like functionality which allows users to update database through the LLM. E.g. add a new sales record for an artist in the database.
 - [ ] Streaming response. If we stream response, does it mean we can respond with structured output? We HAVE to use markdown or text only?
