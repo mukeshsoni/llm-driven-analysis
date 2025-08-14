@@ -1,7 +1,54 @@
- ### Install dependencies
- Run `uv sync`
+# LLM-Driven Database Analysis System
 
- Now you should be able to run the main python script using `uv run main.py`
+A system that uses LLMs with MCP (Model Context Protocol) to query and analyze multiple SQLite databases dynamically.
+
+## Features
+
+- **Multi-Database Support**: Query multiple SQLite databases through a single interface
+- **Dynamic Schema Loading**: Automatically discovers and loads database schemas at runtime
+- **MCP Integration**: Uses MCP servers for database operations and file system access
+- **Session Management**: Maintains conversation history across API calls
+- **REST API**: FastAPI-based HTTP interface for easy integration
+
+## Setup
+
+### Install dependencies
+Run `uv sync`
+
+### Create sample databases (optional)
+```bash
+# Create employees database for testing multi-database support
+python create_sample_db.py
+```
+
+### Run the system
+```bash
+# Start the FastAPI server with MCP integration
+uv run main.py
+```
+
+The API will be available at `http://localhost:8003`
+
+## API Usage
+
+### Query a database
+```bash
+curl -X POST http://localhost:8003/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How many artists are in the database?"}'
+```
+
+### Query a specific database
+```bash
+curl -X POST http://localhost:8003/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How many employees are in the Engineering department? Use the employees database."}'
+```
+
+## Available Databases
+
+- **chinook**: Music store database with artists, albums, tracks, and sales data
+- **employees**: Employee management database with departments, employees, and projects
 
 ## TODO
 - [X] Connect to openai endpoint and generate a response to a query from the LLM
@@ -12,10 +59,10 @@
 - [X] Make the MCP client, MCP server and the openai endpoint work together. Update prompt so that the LLM calls our tool for some task. The tool description takes care of LLM calling a tool. We don't need to tell it again inside the prompt.
 - [ ] Use structured output with pydantic classes. P. S. Looks like it's not possible to use structured output with funciton/tool calls.
 - [X] Add an MCP server which runs SQL queries on some database. Will need to change the prompt too.
+- [X] Use MCP resources or tools to expose db and table schema from the sql execution MCP server. Instead of hard coding in the prompt. That should allow us to scale to any number of databases.
 - [X] Refactor MCPClient. Rename it to MCPManager. And break it into 2 parts. MCPManager should only handle MCP stuff.
 - [X] Multiple MCP servers. According to anthropic blog, there should  be one MCP client per MCP server! After going through reddit and the rest of the internet, it seems like this one client per server is not a strict thing. In fact, most implementations use a single client to connect to multiple MCP servers.
 - [X] Expose the MCP client through an http api endpoint. For us, mainly figure out how to integrate FastMCP with FastAPI. Integrating with existing FastAPI server is a different beast than simply exposing our FastMCP servers as FastAPI endpoints.
-- [ ] Use MCP resources or tools to expose db and table schema from the sql execution MCP server. Instead of hard coding in the prompt. That should allow us to scale to any number of databases.
 - [ ] Handle case when session_id sent in a request is not in our session list. We should not entertain that request. Right now we would simply start a session with that session id for that user.
 - [ ] Web UI
 - [ ] Ability to render charts from the data in our database

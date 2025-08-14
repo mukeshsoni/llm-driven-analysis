@@ -16,34 +16,28 @@ import uuid
 
 
 load_dotenv()
-system_prompt = """
-You are an AI assistant for a music store database called "Chikoon DB".
-You have access to a function called `run_query` that runs SQL queries against the SQLite database.
+base_system_prompt = """
+You are an AI assistant with access to multiple SQLite databases.
+You have access to functions to query these databases:
+- `list_databases`: To see all available databases
+- `get_schema`: To get the schema of a specific database
+- `run_query`: To run SQL queries against a specific database
 
 Your goals are:
 1. Interpret the user's request.
-2. Write a correct and safe SQL query using the provided database schema.
-3. Call the `run_query` function with the SQL to get results.
-4. After receiving the results, summarise them in natural language to directly answer the original question.
+2. Identify which database to query (default to 'chinook' if not specified).
+3. Write a correct and safe SQL query using the provided database schema.
+4. Call the `run_query` function with the SQL and database name to get results.
+5. After receiving the results, summarise them in natural language to directly answer the original question.
 
 Guidelines:
 - Always use the provided schema when forming SQL queries.
 - Use SELECT statements only — never modify the database.
 - Do not invent column or table names; stick to the schema.
 - If the query involves conditions, be explicit in the WHERE clause.
-- If the question is unclear, ask clarifying questions before generating SQL.
+- If the question is unclear or the database is ambiguous, ask clarifying questions.
+- When querying, always specify the database parameter in run_query.
 
-Here is the database schema:
-<schema>
-Tables:
-- Artist(ArtistId, Name)
-- Album(AlbumId, Title, ArtistId)
-- Track(TrackId, Name, AlbumId, GenreId, Composer, Milliseconds, Bytes, UnitPrice)
-- Genre(GenreId, Name)
-- Customer(CustomerId, FirstName, LastName, Email, Country)
-- Invoice(InvoiceId, CustomerId, InvoiceDate, BillingCountry, Total)
-- InvoiceItem(InvoiceItemId, InvoiceId, TrackId, UnitPrice, Quantity)
-</schema>
 """
 
 # Request and Response models
@@ -64,6 +58,7 @@ class LLMQueryProcessor:
     def __init__(self):
         self.model_name = 'gpt-5'
         self.mcp_manager: Optional[MCPManager] = None
+        self.system_prompt = base_system_prompt
 
         # Initialize Azure OpenAI client
         api_key = os.getenv("OPENAI_API_KEY")
@@ -95,6 +90,62 @@ class LLMQueryProcessor:
         }
         self.mcp_manager = MCPManager(server_configs)
         await self.mcp_manager.connect_to_servers()
+
+        # Fetch database schema from MCP resource
+        await self._load_database_schema()
+
+    async def _load_database_schema(self):
+        """Load database schemas from MCP resources and update system prompt."""
+        if not self.mcp_manager:
+            return
+
+        schemas_text = []
+
+        # First, get the list of available databases
+        try:
+            databases_json = await self.mcp_manager.get_resource("sql", "databases://list")
+            if databases_json:
+                import json
+                db_info = json.loads(databases_json)
+                databases = db_info.get("databases", [])
+
+                print(f"Found {len(databases)} database(s)")
+
+                # Fetch schema for each database
+                for db in databases:
+                    db_name = db['name']
+                    schema_uri = db.get('schema_uri', f"schema://{db_name}")
+
+                    print(f"Loading schema for {db_name} database...")
+                    schema_content = await self.mcp_manager.get_resource("sql", schema_uri)
+
+                    if schema_content:
+                        schemas_text.append(f"\n## Database: {db_name}\n{db['description']}\n\n{schema_content}")
+                        print(f"  ✓ Loaded schema for {db_name}")
+                    else:
+                        print(f"  ✗ Failed to load schema for {db_name}")
+
+                if schemas_text:
+                    self.system_prompt = base_system_prompt + "\n\nAvailable Databases and Schemas:\n" + "\n".join(schemas_text)
+                    print(f"Successfully loaded schemas for {len(schemas_text)} database(s)")
+                else:
+                    print("No schemas could be loaded")
+            else:
+                print("Could not get list of databases")
+        except Exception as e:
+            print(f"Error loading database list: {e}")
+
+        # Fallback to single chinook database if list approach fails
+        if not schemas_text:
+            print("Falling back to single database approach...")
+            schema_content = await self.mcp_manager.get_resource("sql", "schema://chinook")
+            if schema_content:
+                self.system_prompt = base_system_prompt + "\n\n## Database: chinook\nMusic store database\n\n" + schema_content
+                print("Successfully loaded chinook database schema")
+            else:
+                print("Using base system prompt without dynamic schema")
+
+
 
     async def cleanup(self):
         """Clean up resources."""
@@ -131,7 +182,7 @@ class LLMQueryProcessor:
         tool_call_turn = 0
         max_turns = 5
         messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": system_prompt}
+            {"role": "system", "content": self.system_prompt}
         ]
 
         # Add conversation history if provided

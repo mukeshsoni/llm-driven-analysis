@@ -1,7 +1,7 @@
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from openai.types.chat import (
     ChatCompletionToolParam,
 )
@@ -79,6 +79,34 @@ class MCPManager:
                     print(f"Loaded tool {tool.name} from {server_name}")
             except Exception as e:
                 print(f"Failed to load tools for {server_name}: {e}")
+
+    async def get_resource(self, server_name: str, uri: str) -> Optional[str]:
+        """
+        Fetch a specific resource from an MCP server.
+
+        Args:
+            server_name: Name of the MCP server
+            uri: Resource URI
+
+        Returns:
+            Resource content as string, or None if not found
+        """
+        client = self.clients.get(server_name)
+        if client is None:
+            print(f"Server {server_name} not found")
+            return None
+
+        try:
+            response = await client.read_resource(uri)
+            if response.contents and len(response.contents) > 0:
+                # Assuming text content for now
+                content = response.contents[0]
+                if hasattr(content, 'text'):
+                    return content.text
+                return str(content)
+        except Exception as e:
+            print(f"Failed to read resource {uri} from {server_name}: {e}")
+            return None
 
     async def call_tool(self, tool_name: str, tool_args: dict):
         """Call a specific tool with the given arguments."""
