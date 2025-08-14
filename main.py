@@ -65,7 +65,19 @@ class LLMQueryProcessor:
 
     async def initialize(self):
         """Initialize the MCP manager and connect to servers."""
-        self.mcp_manager = MCPManager()
+        server_configs = {
+            "mcpServers": {
+                "filesystem": {
+                    "command": "python",
+                    "args": ["mcp_server_file_system.py"]
+                },
+                "sql": {
+                    "command": "python",
+                    "args": ["mcp_server_sql.py"]
+                }
+            }
+        }
+        self.mcp_manager = MCPManager(server_configs)
         await self.mcp_manager.connect_to_servers()
 
     async def cleanup(self):
