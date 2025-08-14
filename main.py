@@ -9,9 +9,10 @@ from openai.types.chat import (
 )
 import json
 from openai import AsyncAzureOpenAI
-from typing import Optional
+from typing import Optional, List
 from mcp_manager import MCPManager
 from contextlib import asynccontextmanager
+import uuid
 
 
 load_dotenv()
@@ -48,9 +49,11 @@ Tables:
 # Request and Response models
 class LLMQueryRequest(BaseModel):
     query: str
+    session_id: Optional[str] = None
 
 class LLMQueryResponse(BaseModel):
     response: str
+    session_id: str
     error: Optional[str] = None
 
 
@@ -117,8 +120,8 @@ class LLMQueryProcessor:
         )
         return response.choices[0]
 
-    async def process_query(self, query: str):
-        """Process a user query, making LLM calls and tool calls as needed."""
+    async def process_query(self, query: str, conversation_history: Optional[List[ChatCompletionMessageParam]] = None):
+        """Process a user query with optional conversation history."""
         if not self.mcp_manager:
             raise RuntimeError("LLMQueryProcessor not initialized. Call initialize() first.")
 
@@ -130,6 +133,11 @@ class LLMQueryProcessor:
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt}
         ]
+
+        # Add conversation history if provided
+        if conversation_history:
+            messages.extend(conversation_history)
+
         messages.append({
             "role": "user",
             "content": query
@@ -185,13 +193,20 @@ class LLMQueryProcessor:
             else:
                 break
 
-        return response.message.content
+        # Return both response and updated messages for storage
+        return response.message.content, messages
 
     async def chat_loop(self):
         """Run an interactive chat loop."""
+        conversation_history = []
         while True:
             user_input = input("User: ")
-            response = await self.process_query(user_input)
+            response, updated_messages = await self.process_query(user_input, conversation_history)
+            # Store conversation history (excluding system prompt)
+            conversation_history = [
+                msg for msg in updated_messages
+                if msg.get("role") != "system"
+            ]
             print("\n")
             print(response)
             print("\n")
@@ -210,6 +225,7 @@ async def lifespan(app: FastAPI):
     # Startup
     app.state.llm_processor = LLMQueryProcessor()
     await app.state.llm_processor.initialize()
+    app.state.chat_sessions = {}  # Dict[str, List[ChatCompletionMessageParam]]
     yield
     # Shutdown
     await app.state.llm_processor.cleanup()
@@ -218,18 +234,51 @@ app = FastAPI(lifespan=lifespan)
 
 @app.post("/chat", response_model=LLMQueryResponse)
 async def process_llm_query(request: LLMQueryRequest):
-    """Process a query using the LLM with MCP tools."""
+    """Process a query using the LLM with conversation memory."""
     if not hasattr(app.state, 'llm_processor') or not app.state.llm_processor:
         raise HTTPException(status_code=500, detail="LLM processor not initialized")
 
+    # Get or create session
+    session_id = request.session_id or str(uuid.uuid4())
+
+    # Retrieve conversation history
+    conversation_history = app.state.chat_sessions.get(session_id, [])
+
     try:
-        response = await app.state.llm_processor.process_query(request.query)
-        return LLMQueryResponse(response=response)
+        # Process query with history
+        response, updated_messages = await app.state.llm_processor.process_query(
+            request.query,
+            conversation_history
+        )
+
+        # Store updated conversation (excluding system prompt)
+        app.state.chat_sessions[session_id] = [
+            msg for msg in updated_messages
+            if msg.get("role") != "system"
+        ]
+
+        return LLMQueryResponse(response=response, session_id=session_id)
     except Exception as e:
         return LLMQueryResponse(
             response="",
+            session_id=session_id,
             error=f"Error processing query: {str(e)}"
         )
+
+@app.delete("/chat/{session_id}")
+async def clear_session(session_id: str):
+    """Clear a specific conversation session."""
+    if session_id in app.state.chat_sessions:
+        del app.state.chat_sessions[session_id]
+        return {"message": "Session cleared"}
+    raise HTTPException(status_code=404, detail="Session not found")
+
+@app.get("/chat/{session_id}/history")
+async def get_session_history(session_id: str):
+    """Get conversation history for a session."""
+    if session_id in app.state.chat_sessions:
+        return {"session_id": session_id, "history": app.state.chat_sessions[session_id]}
+    raise HTTPException(status_code=404, detail="Session not found")
 async def main():
     """Run the FastAPI app with uvicorn."""
     import uvicorn
