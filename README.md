@@ -11,11 +11,12 @@ A system that uses LLMs with MCP (Model Context Protocol) to query and analyze m
 - **REST API**: FastAPI-based HTTP interface for easy integration
 - **Terminal Chat**: Interactive command-line interface for direct database queries
 - **Dual Mode Operation**: Run as either an API server or terminal application
+- **Chart Generation**: Automatically generates chart configurations for visualizable data
 
 ## Setup
 
 ### Install dependencies
-Run `uv sync`
+Run `uv sync` to install all dependencies including Plotly and Pandas for chart visualization.
 
 ### Create sample databases (optional)
 ```bash
@@ -65,6 +66,13 @@ The API will be available at `http://localhost:8003` (or your specified port)
 
 ## Usage Examples
 
+### Testing Chart Generation
+Run the example script to see chart generation in action:
+```bash
+# Run the example chart queries
+uv run python example_chart_queries.py
+```
+
 ### Terminal Mode Examples
 When running in terminal mode, you can have conversations like:
 
@@ -89,6 +97,33 @@ Goodbye!
 curl -X POST http://localhost:8003/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "How many artists are in the database?"}'
+```
+
+#### Query with chart generation
+```bash
+# Request data with visualization
+curl -X POST http://localhost:8003/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Show me the top 5 genres by number of tracks in a bar chart"}'
+
+# Response format:
+# {
+#   "response": "Here are the top 5 genres by number of tracks...",
+#   "session_id": "...",
+#   "chart": {
+#     "type": "bar",
+#     "title": "Top 5 Genres by Track Count",
+#     "data": {
+#       "labels": ["Rock", "Latin", "Metal", "Alternative", "Jazz"],
+#       "datasets": [{
+#         "label": "Number of Tracks",
+#         "data": [1297, 579, 374, 332, 130]
+#       }]
+#     }
+#   }
+# }
+# Note: The LLM returns responses as JSON with "response" and "chart" fields.
+# The "chart" field is null when visualization is not applicable.
 ```
 
 #### Query with session management
@@ -131,15 +166,57 @@ curl -X GET http://localhost:8003/health
 - **chinook**: Music store database with artists, albums, tracks, and sales data
 - **employees**: Employee management database with departments, employees, and projects
 
+## Chart Generation
+
+The system automatically generates chart configurations when data is suitable for visualization. The LLM returns all responses as structured JSON objects containing:
+
+- `response`: The natural language answer to the query
+- `chart`: Either `null` (when no visualization is needed) or a chart configuration object
+
+The API response preserves this structure and adds a `session_id` field:
+
+- `type`: Chart type (bar, line, pie, scatter, area)
+- `title`: Chart title
+- `data`: Chart data including labels and datasets
+- `options`: Chart display options (axes, scales, etc.)
+
+### Supported Chart Types
+
+- **Bar Chart**: For comparing categories (e.g., "top 5 genres by track count")
+- **Line Chart**: For trends over time (e.g., "sales by month over the last year")
+- **Pie Chart**: For showing proportions (e.g., "percentage of tracks by media type")
+- **Scatter Plot**: For relationships between variables
+- **Area Chart**: For cumulative trends
+
+### Example Queries for Charts
+
+```bash
+# Bar chart - categorical comparisons
+"Show me the top 10 artists by total sales revenue with a chart"
+
+# Line chart - time series
+"What are the total sales by month over the last year? Display as a line chart"
+
+# Pie chart - proportions
+"What percentage of tracks are in each media type? Show as a pie chart"
+
+# Distribution chart
+"Show me the distribution of track lengths across all albums"
+```
+
 ## Project Structure
 
-- `llm_processor.py` - Core LLM query processing logic and MCP integration
-- `api_server.py` - FastAPI server implementation with session management
+- `llm_processor.py` - Core LLM query processing logic and MCP integration with chart generation
+- `api_server.py` - FastAPI server implementation with session management and chart support
 - `terminal_app.py` - Interactive terminal chat interface
+- `streamlit_app.py` - Web UI with chart visualization using Plotly
 - `main.py` - Unified entry point with mode selection
 - `mcp_manager.py` - MCP client manager for tool orchestration
 - `mcp_server_sql.py` - MCP server for SQL database operations
 - `mcp_server_file_system.py` - MCP server for file system operations
+- `example_chart_queries.py` - Example script demonstrating chart generation
+- `test_chart_generation.py` - Test suite for chart generation functionality
+- `test_json_response.py` - Test suite for JSON response format validation
 
 ## TODO
 - [X] Connect to openai endpoint and generate a response to a query from the LLM
@@ -155,10 +232,10 @@ curl -X GET http://localhost:8003/health
 - [X] Multiple MCP servers. According to anthropic blog, there should  be one MCP client per MCP server! After going through reddit and the rest of the internet, it seems like this one client per server is not a strict thing. In fact, most implementations use a single client to connect to multiple MCP servers.
 - [X] Expose the MCP client through an http api endpoint. For us, mainly figure out how to integrate FastMCP with FastAPI. Integrating with existing FastAPI server is a different beast than simply exposing our FastMCP servers as FastAPI endpoints.
 - [X] Get database table schemas dynamically when application starts. Use MCP server resource to get table schemas. Add support for multiple databases in our sql MCP server.
-- [ ] Web UI
-- [ ] Add logging. Mainly log the query response times. These might vary wildly for trying to solve problems with llm calls. Also log the breakup of the call between llm call and tool calls.
+- [X] Web UI
+- [X] Add logging. Mainly log the query response times. These might vary wildly for trying to solve problems with llm calls. Also log the breakup of the call between llm call and tool calls.
 - [ ] Get LLM to return markdown
-- [ ] Ability to render charts from the data in our database
+- [X] Ability to render charts from the data in our database
 - [ ] Figure out how to handle concurrent sessions from multiple users
 - [ ] Add copilot like functionality which allows users to update database through the LLM. E.g. add a new sales record for an artist in the database.
 - [ ] Streaming response. If we stream response, does it mean we can respond with structured output? We HAVE to use markdown or text only?

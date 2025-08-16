@@ -67,7 +67,7 @@ async def process_llm_query(request: LLMQueryRequest):
     try:
         # Process query with history
         processing_start = time.perf_counter()
-        response, updated_messages, timing_info = await app.state.llm_processor.process_query(
+        response_text, chart_data, updated_messages, timing_info = await app.state.llm_processor.process_query(
             request.query,
             conversation_history
         )
@@ -91,13 +91,14 @@ async def process_llm_query(request: LLMQueryRequest):
             logger.info(f"   │  └─ Other: {processing_time - timing_info.get('llm_time', 0) - timing_info.get('tool_time', 0):.3f}s")
         logger.info(f"   └─ API overhead: {total_time - processing_time:.3f}s")
 
-        return LLMQueryResponse(response=response, session_id=session_id)
+        return LLMQueryResponse(response=response_text, session_id=session_id, chart=chart_data)
     except Exception as e:
         total_time = time.perf_counter() - request_start_time
         log_exception(logger, e, f"Error processing query for session {session_id} (took {total_time:.3f}s)")
         return LLMQueryResponse(
             response="",
             session_id=session_id,
+            chart=None,
             error=f"Error processing query: {str(e)}"
         )
 

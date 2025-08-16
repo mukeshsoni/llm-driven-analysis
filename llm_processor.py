@@ -30,7 +30,7 @@ Your goals are:
 2. Identify which database to query (default to 'chinook' if not specified).
 3. Write a correct and safe SQL query using the provided database schema.
 4. Call the `run_query` function with the SQL and database name to get results.
-5. After receiving the results, summarise them in natural language to directly answer the original question.
+5. After receiving the results, provide a structured JSON response.
 
 Guidelines:
 - Always use the provided schema when forming SQL queries.
@@ -40,12 +40,52 @@ Guidelines:
 - If the question is unclear or the database is ambiguous, ask clarifying questions.
 - When querying, always specify the database parameter in run_query.
 
-IMPORTANT: When responding to the user:
-- Provide ONLY the final answer based on the query results
-- Do NOT include your reasoning process, planning steps, or intermediate thoughts
-- Do NOT show which tools you're calling or how you're constructing queries
-- Do NOT include JSON objects or technical details about tool usage
-- Simply present the information the user asked for in a clear, direct manner
+RESPONSE FORMAT:
+You MUST respond with ONLY a valid JSON object in this exact format:
+
+{
+  "response": "Your natural language answer to the user's question goes here",
+  "chart": null or {chart configuration object}
+}
+
+CHART CONFIGURATION:
+When the query results would benefit from visualization (e.g., trends, comparisons, distributions), include a chart configuration. Otherwise, set chart to null.
+
+Chart configuration structure when applicable:
+{
+  "type": "bar|line|pie|scatter|area",
+  "title": "Chart Title",
+  "data": {
+    "labels": ["Label1", "Label2", ...],
+    "datasets": [
+      {
+        "label": "Dataset Name",
+        "data": [value1, value2, ...],
+        "backgroundColor": "rgba(75, 192, 192, 0.6)",
+        "borderColor": "rgba(75, 192, 192, 1)"
+      }
+    ]
+  },
+  "options": {
+    "scales": {
+      "x": {"title": {"display": true, "text": "X Axis Label"}},
+      "y": {"title": {"display": true, "text": "Y Axis Label"}}
+    }
+  }
+}
+
+Chart type selection:
+- bar: For comparing categories
+- line: For trends over time or continuous data
+- pie: For showing parts of a whole (percentages/proportions)
+- scatter: For showing relationships between two variables
+- area: For showing cumulative trends
+
+IMPORTANT:
+- Your entire response must be a valid JSON object
+- Do not include any text before or after the JSON
+- Ensure all strings are properly quoted
+- Use null for chart when no visualization is needed
 
 """
 
@@ -57,6 +97,7 @@ class LLMQueryRequest(BaseModel):
 class LLMQueryResponse(BaseModel):
     response: str
     session_id: str
+    chart: Optional[dict] = None
     error: Optional[str] = None
 
 
@@ -203,7 +244,7 @@ class LLMQueryProcessor:
             raise
 
     async def process_query(self, query: str, conversation_history: Optional[List[ChatCompletionMessageParam]] = None):
-        """Process a user query with optional conversation history."""
+        """Process a user query with optional conversation history and extract chart data if present."""
         if not self.mcp_manager:
             logger.error("Attempted to process query without initialized MCP manager")
             raise RuntimeError("LLMQueryProcessor not initialized. Call initialize() first.")
@@ -333,8 +374,33 @@ class LLMQueryProcessor:
             for tool_detail in timing_info['tool_details']:
                 logger.debug(f"   - {tool_detail['name']}: {tool_detail['duration']:.3f}s")
 
-        # Return response, updated messages, and timing info
-        return response.message.content, messages, timing_info
+        # Parse the JSON response from the LLM
+        response_text = ""
+        chart_data = None
+
+        try:
+            # The LLM should return a JSON string
+            json_response = json.loads(response.message.content)
+
+            # Extract response text and chart data
+            response_text = json_response.get("response", "")
+            chart_data = json_response.get("chart", None)
+
+            if chart_data:
+                logger.info(f"Successfully extracted chart configuration of type: {chart_data.get('type', 'unknown')}")
+
+        except json.JSONDecodeError as e:
+            # Fallback: if the response is not valid JSON, treat it as plain text
+            logger.warning(f"Response is not valid JSON, treating as plain text: {e}")
+            response_text = response.message.content
+            chart_data = None
+        except Exception as e:
+            logger.error(f"Error parsing response: {e}")
+            response_text = response.message.content
+            chart_data = None
+
+        # Return response text, chart data, updated messages, and timing info
+        return response_text, chart_data, messages, timing_info
 
     async def chat_loop(self):
         """Run an interactive chat loop."""
@@ -348,14 +414,17 @@ class LLMQueryProcessor:
                 break
 
             try:
-                response, updated_messages, timing_info = await self.process_query(user_input, conversation_history)
+                response_text, chart_data, updated_messages, timing_info = await self.process_query(user_input, conversation_history)
                 # Store conversation history (excluding system prompt)
                 conversation_history = [
                     msg for msg in updated_messages
                     if msg.get("role") != "system"
                 ]
                 print("\n")
-                print(response)
+                print(response_text)
+                if chart_data:
+                    print("\n[Chart data available - would be rendered in a UI]")
+                    print(f"Chart type: {chart_data.get('type', 'unknown')}")
                 print("\n")
             except Exception as e:
                 log_exception(logger, e, "Error in chat loop")

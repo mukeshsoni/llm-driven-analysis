@@ -10,4 +10,6 @@ dependencies = [
     "mcp[cli]>=1.12.4",
     "openai>=1.99.5",
     "streamlit>=1.29.0",
+    "plotly>=5.18.0",
+    "pandas>=2.1.0",
 ]
