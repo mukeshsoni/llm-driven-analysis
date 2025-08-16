@@ -2,10 +2,15 @@ from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from typing import Optional, List, Dict, Any
+import time
 from openai.types.chat import (
     ChatCompletionToolParam,
 )
 from openai.types.shared_params.function_definition import FunctionDefinition
+from logger_config import get_logger, log_exception
+
+# Initialize logger for this module
+logger = get_logger(__name__)
 
 class ServerConfig:
     def __init__(self, command: str, args: List[str], env: Optional[dict[str, str]] = None):
@@ -31,7 +36,9 @@ class MCPManager:
 
     async def connect_to_servers(self):
         """Connect to MCP servers and initialize the session."""
-        print("Connecting to MCP servers...")
+        logger.info("Connecting to MCP servers...")
+        total_start = time.perf_counter()
+
         for server_name, config in self.server_configs.items():
             server_params = StdioServerParameters(
                 command=config.command,
@@ -40,6 +47,7 @@ class MCPManager:
             )
 
             try:
+                server_start = time.perf_counter()
                 # stdio_client is the main guy. That function is what is creating a client which is connected to the mcp server.
                 # It actually starts the mcp server and then maintains a connection with the server.
                 stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
@@ -48,21 +56,32 @@ class MCPManager:
                 client = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
                 await client.initialize()
                 self.clients[server_name] = client
-                print(f"Connected to {server_name} MCP server")
+                server_time = time.perf_counter() - server_start
+                logger.info(f"✅ Connected to MCP server '{server_name}' in {server_time:.3f}s")
             except Exception as e:
-                print(f"Failed to connect to {server_name}: {e}")
+                log_exception(logger, e, f"Failed to connect to MCP server: {server_name}")
         try:
             # TODO: Should we call load_tools somewhere else? From the creator or MCPManager instance?
             await self.load_tools()
+            total_time = time.perf_counter() - total_start
+            logger.info(f"⏱️  Total MCP initialization time: {total_time:.3f}s")
         except Exception as e:
-            print(f"Failed to load tools: {e}")
+            log_exception(logger, e, "Failed to load tools")
 
     async def load_tools(self):
+        """Load tools from all connected MCP servers."""
+        logger.info("Loading tools from MCP servers...")
+        load_start = time.perf_counter()
+        total_tools = 0
+
         for server_name, client in self.clients.items():
             try:
+                server_tool_start = time.perf_counter()
                 # List available tools for a server
                 response = await client.list_tools()
                 tools = response.tools
+                total_tools += len(tools)
+
                 for tool in tools:
                     # TODO: What happens if 2 MCP servers have the same tool name?
                     self.tool_to_server[tool.name] = server_name
@@ -76,9 +95,15 @@ class MCPManager:
                             )
                         )
                     )
-                    print(f"Loaded tool {tool.name} from {server_name}")
+                    logger.debug(f"Loaded tool '{tool.name}' from server '{server_name}'")
+
+                server_tool_time = time.perf_counter() - server_tool_start
+                logger.info(f"   └─ Loaded {len(tools)} tools from '{server_name}' in {server_tool_time:.3f}s")
             except Exception as e:
-                print(f"Failed to load tools for {server_name}: {e}")
+                log_exception(logger, e, f"Failed to load tools for server '{server_name}'")
+
+        total_load_time = time.perf_counter() - load_start
+        logger.info(f"📦 Loaded {total_tools} total tools in {total_load_time:.3f}s")
 
     async def get_resource(self, server_name: str, uri: str) -> Optional[str]:
         """
@@ -91,13 +116,21 @@ class MCPManager:
         Returns:
             Resource content as string, or None if not found
         """
+        # Print clients
+        logger.info("MCPManager: get_resource")
+        logger.info(self.clients)
         client = self.clients.get(server_name)
         if client is None:
-            print(f"Server {server_name} not found")
+            logger.error(f"Server '{server_name}' not found")
             return None
 
         try:
+            logger.debug(f"Reading resource '{uri}' from server '{server_name}'")
+            resource_start = time.perf_counter()
             response = await client.read_resource(uri)
+            resource_time = time.perf_counter() - resource_start
+            logger.debug(f"   └─ Resource read completed in {resource_time:.3f}s")
+
             if response.contents and len(response.contents) > 0:
                 # Assuming text content for now
                 content = response.contents[0]
@@ -105,24 +138,33 @@ class MCPManager:
                     return content.text
                 return str(content)
         except Exception as e:
-            print(f"Failed to read resource {uri} from {server_name}: {e}")
+            log_exception(logger, e, f"Failed to read resource '{uri}' from server '{server_name}'")
             return None
 
     async def call_tool(self, tool_name: str, tool_args: dict):
         """Call a specific tool with the given arguments."""
-        print(f"Calling tool: {tool_name}")
-        print(f"Tool arguments: {tool_args}")
+        tool_start = time.perf_counter()
+        logger.info(f"🔧 Calling tool: {tool_name}")
+        logger.debug(f"Tool arguments: {tool_args}")
 
         server_name = self.tool_to_server.get(tool_name)
         if server_name is None:
+            logger.error(f"Tool '{tool_name}' not found in any connected server")
             raise ValueError(f"Tool {tool_name} not found")
 
         client = self.clients[server_name]
         if client is None:
+            logger.error(f"Client for server '{server_name}' not initialized")
             raise RuntimeError("MCP session not initialized. Call connect_to_servers() first.")
 
+        mcp_call_start = time.perf_counter()
         tool_response = await client.call_tool(tool_name, tool_args)
-        print(f"Got tool response for tool: {tool_name}")
+        mcp_call_time = time.perf_counter() - mcp_call_start
+
+        total_tool_time = time.perf_counter() - tool_start
+        logger.info(f"   ├─ MCP call time: {mcp_call_time:.3f}s")
+        logger.info(f"   └─ Total tool time: {total_tool_time:.3f}s")
+        logger.debug(f"Received response from tool '{tool_name}'")
 
         return tool_response
 
@@ -132,8 +174,10 @@ class MCPManager:
 
     async def cleanup(self):
         """Clean up resources."""
+        logger.info("Cleaning up MCP manager resources...")
         if self.exit_stack:
             await self.exit_stack.aclose()
+            logger.debug("Exit stack closed successfully")
 
     async def __aenter__(self):
         await self.connect_to_servers()

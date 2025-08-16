@@ -3,6 +3,12 @@ from mcp.server.fastmcp import FastMCP
 from typing import Dict, List, Any, Optional
 import os
 import glob
+import time
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 mcp = FastMCP("SQL execution mcp server")
 
@@ -48,6 +54,7 @@ def get_database_schema(db_path: str) -> Dict[str, Any]:
     Returns:
         dict: Database schema with tables, columns, and foreign keys
     """
+    start_time = time.perf_counter()
     schema = {
         "database": db_path,
         "tables": {}
@@ -99,7 +106,12 @@ def get_database_schema(db_path: str) -> Dict[str, Any]:
                     "columns": columns,
                     "foreign_keys": foreign_keys
                 }
+
+        elapsed_time = time.perf_counter() - start_time
+        logger.info(f"📊 Schema extraction for {db_path} completed in {elapsed_time:.3f}s ({len(schema['tables'])} tables)")
     except Exception as e:
+        elapsed_time = time.perf_counter() - start_time
+        logger.error(f"❌ Schema extraction failed after {elapsed_time:.3f}s: {str(e)}")
         schema["error"] = str(e)
 
     return schema
@@ -178,10 +190,14 @@ def register_schema_resources():
         def make_schema_resource(db_path: str, name: str):
             def get_schema_resource() -> str:
                 """Get the database schema as a resource."""
+                start_time = time.perf_counter()
                 schema = get_database_schema(db_path)
                 if "error" in schema:
                     return f"Error accessing {name} database: {schema['error']}"
-                return format_schema_for_prompt(schema)
+                result = format_schema_for_prompt(schema)
+                elapsed_time = time.perf_counter() - start_time
+                logger.info(f"🔍 Schema resource for '{name}' prepared in {elapsed_time:.3f}s")
+                return result
             return get_schema_resource
 
         # Register the resource with a unique URI for each database
@@ -224,9 +240,10 @@ def get_schema(database: Optional[str] = None) -> Dict[str, Any]:
     Args:
         database: Name of the database (optional, defaults to 'chinook')
 
-    Returns:
-        dict: Complete database schema with tables, columns, types, and foreign keys
-    """
+        Returns:
+            dict: Complete database schema with tables, columns, types, and foreign keys
+        """
+    start_time = time.perf_counter()
     databases = discover_databases()
 
     # Default to chinook if not specified
@@ -239,7 +256,10 @@ def get_schema(database: Optional[str] = None) -> Dict[str, Any]:
         }
 
     db_path = databases[database]["path"]
-    return get_database_schema(db_path)
+    schema = get_database_schema(db_path)
+    total_time = time.perf_counter() - start_time
+    logger.info(f"⚙️ get_schema tool completed in {total_time:.3f}s for database '{database}'")
+    return schema
 
 @mcp.tool()
 def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
@@ -253,6 +273,7 @@ def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         dict: Query results with columns and rows, or error message
     """
+    tool_start_time = time.perf_counter()
     databases = discover_databases()
 
     # Default to chinook if not specified
@@ -268,7 +289,7 @@ def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
         }
 
     db_path = databases[database]["path"]
-    print(f"Running query on {database} database: {query}")
+    logger.info(f"🔍 Running query on {database} database: {query[:100]}{'...' if len(query) > 100 else ''}")
 
     # Basic safety check - only allow SELECT queries
     query_lower = query.strip().lower()
@@ -283,9 +304,22 @@ def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
     try:
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
+
+            # Time the actual query execution
+            query_start = time.perf_counter()
             cursor.execute(query)
             rows = cursor.fetchall()
+            query_time = time.perf_counter() - query_start
+
             columns = [description[0] for description in cursor.description] if cursor.description else []
+
+            total_time = time.perf_counter() - tool_start_time
+            logger.info(f"✅ Query executed successfully:")
+            logger.info(f"   ├─ Database: {database}")
+            logger.info(f"   ├─ Rows returned: {len(rows)}")
+            logger.info(f"   ├─ Query execution: {query_time:.3f}s")
+            logger.info(f"   └─ Total tool time: {total_time:.3f}s")
+
             return {
                 "database": database,
                 "rows": rows,
@@ -293,6 +327,8 @@ def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
                 "row_count": len(rows)
             }
     except Exception as e:
+        total_time = time.perf_counter() - tool_start_time
+        logger.error(f"❌ Query failed after {total_time:.3f}s: {str(e)}")
         return {
             "error": str(e),
             "database": database,
