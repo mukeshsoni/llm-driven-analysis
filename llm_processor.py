@@ -74,10 +74,10 @@ class LLMQueryProcessor:
         """Initialize the MCP manager and connect to servers."""
         server_configs = {
             "mcpServers": {
-                "filesystem": {
-                    "command": "python",
-                    "args": ["mcp_server_file_system.py"]
-                },
+                # "filesystem": {
+                #     "command": "python",
+                #     "args": ["mcp_server_file_system.py"]
+                # },
                 "sql": {
                     "command": "python",
                     "args": ["mcp_server_sql.py"]
