@@ -155,7 +155,7 @@ curl -X GET http://localhost:8003/health
 - [X] Multiple MCP servers. According to anthropic blog, there should  be one MCP client per MCP server! After going through reddit and the rest of the internet, it seems like this one client per server is not a strict thing. In fact, most implementations use a single client to connect to multiple MCP servers.
 - [X] Expose the MCP client through an http api endpoint. For us, mainly figure out how to integrate FastMCP with FastAPI. Integrating with existing FastAPI server is a different beast than simply exposing our FastMCP servers as FastAPI endpoints.
 - [X] Get database table schemas dynamically when application starts. Use MCP server resource to get table schemas. Add support for multiple databases in our sql MCP server.
-- [ ] Web UI
+- [X] Web UI
 - [ ] Ability to render charts from the data in our database
 - [ ] Add logging. Mainly log the query response times. These might vary wildly for trying to solve problems with llm calls. Also log the breakup of the call between llm call and tool calls.
 - [ ] Handle case when session_id sent in a request is not in our session list. We should not entertain that request. Right now we would simply start a session with that session id for that user.
