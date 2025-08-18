@@ -25,7 +25,7 @@ Your goals are:
 2. Identify which database to query (default to 'chinook' if not specified).
 3. Write a correct and safe SQL query using the provided database schema.
 4. Call the `run_query` function with the SQL and database name to get results.
-5. After receiving the results, summarise them in natural language to directly answer the original question.
+5. After receiving the results, provide a structured JSON response.
 
 Guidelines:
 - Always use the provided schema when forming SQL queries.
@@ -35,6 +35,52 @@ Guidelines:
 - If the question is unclear or the database is ambiguous, ask clarifying questions.
 - When querying, always specify the database parameter in run_query.
 
+RESPONSE FORMAT:
+You MUST provide with ONLY a valid JSON object in this exact format:
+{
+    "response": "Your natural language answer to the users question goes here",
+    "chart": null or {chart configuration object}
+}
+
+CHART CONFIGURATION:
+When the query results would benefit from visualization (e.g. trends, comparisons, distributions), include a chart configuration.
+Otherwise, set chart property to null.
+
+Chart configuration structure when applicable:
+{
+    "type": "bar|line|pie|scatter|area",
+    "title": "Chart title",
+    "data": {
+        "labels": ["Label1", "Label2"...],
+        "datasets": [
+            {
+                "label": "Dataset name",
+                "data": [value1, value2, value3...],
+                "backgroundColor": "rgba(75, 192, 192, 0.6)",
+                "borderColor": "rgba(75, 192, 192, 1)"
+            }
+        ]
+    },
+    "options": {
+        "scales": {
+            "x": {"title": {"display": true, "text": "X Axis label"}},
+            "y": {"title": {"display": true, "text": "Y Axis label"}}
+        }
+    }
+}
+
+Chart type selection:
+- bar: For comparing categories
+- line: For trends over time or continuous data
+- pie: For showing parts of a whole (percentages/proportions)
+- scatter: For showing relationship between two variables
+- area: For showing cumulative trends
+
+IMPORTANT:
+- Your whole response MUST be a valid JSON object
+- Do not include any text before or after the JSON object
+- Ensure all strings are properly formatted
+- Use null for chart when no visualization is needed
 """
 
 # Request and Response models
@@ -45,6 +91,7 @@ class LLMQueryRequest(BaseModel):
 class LLMQueryResponse(BaseModel):
     response: str
     session_id: str
+    chart_data: Optional[dict] = None
     error: Optional[str] = None
 
 
@@ -238,8 +285,25 @@ class LLMQueryProcessor:
             else:
                 break
 
-        # Return both response and updated messages for storage
-        return response.message.content, messages
+        response_text = ""
+        chart_data = None
+
+        # We have asked the LLM to return content as a json object - {"response": string; chart: null | object}
+        try:
+            # Decode json string into python object
+            json_response = json.loads(response.message.content)
+            response_text = json_response.get("response", "")
+            chart_data = json_response.get("chart", None)
+        except json.JSONDecodeError as e:
+            print(f"Response is not valid JSON. Treating it as plain text: {str(e)}")
+            response_text = response.message.content
+            chart_data = None
+        except Exception as e:
+            # logger.error(f"Error decoding LLM response as json {str(e)}")
+            print(f"Error decoding LLM response as json {str(e)}")
+        # # Return both response and updated messages for storage
+        # return response.message.content, messages
+        return response_text, chart_data, messages
 
     async def chat_loop(self):
         """Run an interactive chat loop."""
@@ -249,14 +313,17 @@ class LLMQueryProcessor:
             if user_input.lower() in ['exit', 'quit', 'bye']:
                 print("Goodbye!")
                 break
-            response, updated_messages = await self.process_query(user_input, conversation_history)
+            response_text, chart_data, updated_messages = await self.process_query(user_input, conversation_history)
             # Store conversation history (excluding system prompt)
             conversation_history = [
                 msg for msg in updated_messages
                 if msg.get("role") != "system"
             ]
             print("\n")
-            print(response)
+            print(response_text)
+            if chart_data:
+                print("\n[Chart data available - would be rendered in a UI]")
+                print(f"Chart type: {chart_data.get('type', 'unknown')}")
             print("\n")
 
     async def __aenter__(self):

@@ -36,7 +36,7 @@ async def process_llm_query(request: LLMQueryRequest):
 
     try:
         # Process query with history
-        response, updated_messages = await app.state.llm_processor.process_query(
+        response_text, chart_data, updated_messages = await app.state.llm_processor.process_query(
             request.query,
             conversation_history
         )
@@ -47,7 +47,7 @@ async def process_llm_query(request: LLMQueryRequest):
             if msg.get("role") != "system"
         ]
 
-        return LLMQueryResponse(response=response, session_id=session_id)
+        return LLMQueryResponse(response=response_text, session_id=session_id, chart_data=chart_data)
     except Exception as e:
         return LLMQueryResponse(
             response="",
