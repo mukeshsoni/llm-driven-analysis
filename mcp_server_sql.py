@@ -268,7 +268,6 @@ def run_query(query: str, database: Optional[str] = None) -> Dict[str, Any]:
         }
 
     db_path = databases[database]["path"]
-    print(f"Running query on {database} database: {query}")
 
     # Basic safety check - only allow SELECT queries
     query_lower = query.strip().lower()
